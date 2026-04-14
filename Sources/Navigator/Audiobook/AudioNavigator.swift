@@ -93,6 +93,19 @@ public final class AudioNavigator: Navigator, Configurable, AudioSessionUser, Lo
         /// Custom configuration for the audio session.
         public var audioSession: AudioSession.Configuration
 
+#if os(macOS)
+        public init(
+            preferences: AudioPreferences = AudioPreferences(),
+            defaults: AudioDefaults = AudioDefaults(),
+            playbackRefreshInterval: TimeInterval = 0.5,
+            audioSession: AudioSession.Configuration = .init()
+        ) {
+            self.preferences = preferences
+            self.defaults = defaults
+            self.playbackRefreshInterval = playbackRefreshInterval
+            self.audioSession = audioSession
+        }
+#else
         public init(
             preferences: AudioPreferences = AudioPreferences(),
             defaults: AudioDefaults = AudioDefaults(),
@@ -108,6 +121,7 @@ public final class AudioNavigator: Navigator, Configurable, AudioSessionUser, Lo
             self.playbackRefreshInterval = playbackRefreshInterval
             self.audioSession = audioSession
         }
+#endif
     }
 
     public nonisolated let publication: Publication

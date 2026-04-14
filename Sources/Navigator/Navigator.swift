@@ -129,11 +129,17 @@ public extension NavigatorDelegate {
 
     func navigator(_ navigator: Navigator, didJumpTo locator: Locator) {}
 
+#if os(macOS)
+    func navigator(_ navigator: Navigator, presentExternalURL url: URL) {
+        NSWorkspace.shared.open(url)
+    }
+#else
     func navigator(_ navigator: Navigator, presentExternalURL url: URL) {
         if UIApplication.shared.canOpenURL(url) {
             UIApplication.shared.open(url, options: [:], completionHandler: nil)
         }
     }
+#endif
 
     func navigator(_ navigator: Navigator, shouldNavigateToNoteAt link: Link, content: String, referrer: String?) -> Bool {
         true

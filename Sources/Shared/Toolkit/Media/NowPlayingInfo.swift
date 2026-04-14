@@ -6,7 +6,12 @@
 
 import Foundation
 import MediaPlayer
+
+#if os(macOS)
+import AppKit
+#else
 import UIKit
+#endif
 
 /// Manages the Now Playing media item displayed on the lock screen.
 ///
@@ -21,13 +26,13 @@ public final class NowPlayingInfo {
         /// The performing artist(s) for a media item.
         public var artist: String?
         /// The artwork image for the media item.
-        public var artwork: UIImage?
+        public var artwork: PlatformImage?
         /// The total number of chapters in the now-playing item.
         public var chapterCount: Int?
         /// The number corresponding to the chapter currently being played.
         public var chapterNumber: Int?
 
-        public init(title: String, artist: String? = nil, artwork: UIImage? = nil, chapterCount: Int? = nil, chapterNumber: Int? = nil) {
+        public init(title: String, artist: String? = nil, artwork: PlatformImage? = nil, chapterCount: Int? = nil, chapterNumber: Int? = nil) {
             self.title = title
             self.artist = artist
             self.artwork = artwork

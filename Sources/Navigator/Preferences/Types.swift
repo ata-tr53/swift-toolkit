@@ -6,7 +6,12 @@
 
 import Foundation
 import ReadiumShared
+
+#if os(macOS)
+import AppKit
+#else
 import UIKit
+#endif
 
 /// Layout axis.
 public enum Axis: String, Codable, Hashable {
@@ -140,7 +145,32 @@ public struct Color: RawRepresentable, Codable, Hashable {
         }
         self.init(rawValue: Int(hexNumber))
     }
+#if os(macOS)
+    public init?(nsColor: NSColor) {
+        guard let rgbColor = nsColor.usingColorSpace(.sRGB) else {
+            return nil
+        }
+        
+        var red: CGFloat = 0
+        var green: CGFloat = 0
+        var blue: CGFloat = 0
+        var alpha: CGFloat = 0
+        rgbColor.getRed(&red, green: &green, blue: &blue, alpha: &alpha)
+        
+        let r = Int(red * 255)
+        let g = Int(green * 255)
+        let b = Int(blue * 255)
+        self.init(rawValue: (r << 16) | (g << 8) | b)
+    }
 
+    /// Returns an NSColor for the receiver.
+    public var nsColor: NSColor {
+        let r = CGFloat((rawValue >> 16) & 0xFF) / 255
+        let g = CGFloat((rawValue >> 8) & 0xFF) / 255
+        let b = CGFloat(rawValue & 0xFF) / 255
+        return NSColor(srgbRed: r, green: g, blue: b, alpha: 1.0)
+    }
+#else
     /// Creates a color from a UIKit color.
     ///
     /// Any alpha component is ignored.
@@ -165,25 +195,34 @@ public struct Color: RawRepresentable, Codable, Hashable {
         let b = CGFloat(rawValue & 0xFF) / 255
         return UIColor(red: r, green: g, blue: b, alpha: 1.0)
     }
+#endif
 }
 
 #if canImport(SwiftUI)
 
-    import SwiftUI
+import SwiftUI
 
-    @available(iOS 13.0, *)
-    public extension Color {
-        /// Creates a color from a SwiftUI color.
-        @available(iOS 14.0, *)
-        init?(color: SwiftUI.Color) {
-            self.init(uiColor: UIColor(color))
-        }
-
-        /// Returns a SwiftUI color for the receiver.
-        var color: SwiftUI.Color {
-            SwiftUI.Color(uiColor)
-        }
+@available(iOS 13.0, macOS 10.15, *)
+public extension Color {
+    /// Creates a color from a SwiftUI color.
+    @available(iOS 14.0, macOS 11.0, *)
+    init?(color: SwiftUI.Color) {
+        #if os(macOS)
+        self.init(nsColor: NSColor(color))
+        #else
+        self.init(uiColor: UIColor(color))
+        #endif
     }
+
+    /// Returns a SwiftUI color for the receiver.
+    var color: SwiftUI.Color {
+        #if os(macOS)
+        return SwiftUI.Color(nsColor)
+        #else
+        return SwiftUI.Color(uiColor)
+        #endif
+    }
+}
 #endif
 
 /// Typeface for a publication's text.

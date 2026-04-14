@@ -6,8 +6,86 @@
 
 import Foundation
 import ReadiumShared
-import UIKit
 
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
+
+#if os(macOS)
+final class ImageViewController: NSViewController, Loggable {
+    let index: Int
+
+    private let url: URL
+
+    private var scrollView: NSScrollView!
+    private var imageView: NSImageView!
+
+    init(index: Int, url: URL) {
+        self.index = index
+        self.url = url
+
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder aDecoder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+    
+    override func loadView() {
+        self.view = NSView()
+        self.view.wantsLayer = true
+        self.view.layer?.backgroundColor = NSColor.clear.cgColor
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+
+        scrollView = NSScrollView(frame: view.bounds)
+        scrollView.autoresizingMask = [.width, .height]
+        scrollView.drawsBackground = false
+        scrollView.hasVerticalScroller = true
+        scrollView.hasHorizontalScroller = true
+        
+        scrollView.allowsMagnification = true
+        scrollView.minMagnification = 1.0
+        scrollView.maxMagnification = 4.0
+        view.addSubview(scrollView)
+
+        imageView = NSImageView(frame: scrollView.bounds)
+        imageView.autoresizingMask = [.width, .height]
+        imageView.imageScaling = .scaleProportionallyUpOrDown
+        
+        scrollView.documentView = imageView
+
+        loadURL()
+    }
+
+    private func loadURL() {
+        URLSession.shared.dataTask(with: url) { data, _, error in
+            guard let data = data, let image = NSImage(data: data) else {
+                if let error = error {
+                    self.log(.error, error)
+                } else {
+                    self.log(.error, "Can't load resource at \(self.url)")
+                }
+                return
+            }
+
+            DispatchQueue.main.async {
+                // AppKit cross-dissolve animation using the animator proxy
+                NSAnimationContext.runAnimationGroup({ context in
+                    context.duration = 0.1
+                    context.allowsImplicitAnimation = true
+                    self.imageView.animator().image = image
+                }, completionHandler: nil)
+            }
+        }.resume()
+    }
+}
+#else
 /// Zoomable image view controller.
 final class ImageViewController: UIViewController, Loggable {
     /// Index of the resource.
@@ -92,3 +170,4 @@ extension ImageViewController: UIScrollViewDelegate {
         imageView
     }
 }
+#endif

@@ -6,7 +6,12 @@
 
 import AVFoundation
 import Foundation
+
+#if os(macOS)
+import AppKit
+#else
 import UIKit
+#endif
 
 /// An user of the `AudioSession`, for example a media player object.
 public protocol AudioSessionUser: AnyObject {
@@ -25,6 +30,37 @@ public extension AudioSessionUser {
 }
 
 /// Manages an activated `AVAudioSession`.
+#if os(macOS)
+/// A stubbed AudioSession for macOS.
+/// macOS handles audio routing automatically without requiring AVAudioSession or background app state tracking.
+@MainActor
+public final class AudioSession: Loggable {
+    
+    public struct Configuration: Equatable {
+        public init() {}
+    }
+
+    /// Shared `AudioSession` for this app.
+    public nonisolated static let shared = AudioSession()
+
+    private nonisolated init() {}
+
+    public nonisolated func start(with user: AudioSessionUser, isPlaying: Bool) {
+        // No-op on macOS
+    }
+
+    public nonisolated func end(for user: AudioSessionUser) {
+        // No-op on macOS
+    }
+
+    public nonisolated func user(_ user: AudioSessionUser, didChangePlaying isPlaying: Bool) {
+        // No-op on macOS
+    }
+
+    /// Whether the audio session is currently interrupted. Always false on macOS.
+    public private(set) var isInterrupted: Bool = false
+}
+#else
 @MainActor
 public final class AudioSession: Loggable {
     public struct Configuration: Equatable {
@@ -245,3 +281,5 @@ public final class AudioSession: Loggable {
         }
     }
 }
+#endif
+

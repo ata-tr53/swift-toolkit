@@ -6,8 +6,79 @@
 
 import ReadiumInternal
 import ReadiumShared
-import UIKit
 
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
+
+
+#if os(macOS)
+@available(*, deprecated, message: "Open a CBZ publication with EPUBNavigatorViewController.")
+public protocol CBZNavigatorDelegate: VisualNavigatorDelegate {}
+
+/// A stubbed view controller to satisfy the compiler on macOS.
+@available(*, deprecated, message: "Open a CBZ publication with EPUBNavigatorViewController.")
+open class CBZNavigatorViewController: NSViewController, VisualNavigator, Loggable {
+    
+    public func addObserver(_ observer: any InputObserving) -> InputObservableToken {
+        fatalError("Not supported on macOS")
+    }
+    
+    public func removeObserver(_ token: InputObservableToken) {
+        fatalError("Not supported on macOS")
+    }
+    
+    public weak var delegate: CBZNavigatorDelegate?
+    public let publication: Publication
+
+    public init(
+        publication: Publication,
+        initialLocation: Locator?,
+        editingActions: [EditingAction] = EditingAction.defaultActions,
+        httpServer: HTTPServer
+    ) throws {
+        fatalError("CBZNavigatorViewController is a deprecated iOS component and is not supported on macOS. Use EPUBNavigatorViewController instead.")
+    }
+    
+    @available(*, unavailable)
+    public required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    // MARK: - VisualNavigator Requirements
+    
+    public var presentation: VisualNavigatorPresentation {
+        fatalError("Not supported on macOS")
+    }
+
+    public var readingProgression: ReadiumShared.ReadingProgression {
+        fatalError("Not supported on macOS")
+    }
+
+    public var currentLocation: Locator? {
+        fatalError("Not supported on macOS")
+    }
+
+    public func go(to locator: Locator, options: NavigatorGoOptions) async -> Bool {
+        fatalError("Not supported on macOS")
+    }
+
+    public func go(to link: Link, options: NavigatorGoOptions) async -> Bool {
+        fatalError("Not supported on macOS")
+    }
+
+    public func goForward(options: NavigatorGoOptions) async -> Bool {
+        fatalError("Not supported on macOS")
+    }
+
+    public func goBackward(options: NavigatorGoOptions) async -> Bool {
+        fatalError("Not supported on macOS")
+    }
+}
+
+#else
 @available(*, deprecated, message: "Open a CBZ publication with EPUBNavigatorViewController.")
 public protocol CBZNavigatorDelegate: VisualNavigatorDelegate {}
 
@@ -295,3 +366,5 @@ extension CBZNavigatorViewController: UIPageViewControllerDelegate {
         }
     }
 }
+#endif
+

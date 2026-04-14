@@ -4,6 +4,181 @@
 //  available in the top-level LICENSE file of the project.
 //
 
+#if os(macOS)
+
+import AppKit
+
+/// Base implementation of `NSViewController` which implements
+/// ``InputObservable`` to forward AppKit events to observers.
+open class InputObservableViewController: NSViewController, InputObservable {
+    let inputObservers = CompositeInputObserver()
+
+    override open func viewDidAppear() {
+        super.viewDidAppear()
+        // On macOS, the view or window needs to explicitly accept first responder status
+        view.window?.makeFirstResponder(self)
+    }
+
+    // MARK: - InputObservable
+
+    @discardableResult
+    public func addObserver(_ observer: any InputObserving) -> InputObservableToken {
+        inputObservers.addObserver(observer)
+    }
+
+    public func removeObserver(_ token: InputObservableToken) {
+        inputObservers.removeObserver(token)
+    }
+
+    // MARK: - NSResponder
+
+    override open var acceptsFirstResponder: Bool {
+        true
+    }
+
+    override open func resignFirstResponder() -> Bool {
+        if isViewLoaded {
+            // Equivalent to endEditing on iOS
+            view.window?.makeFirstResponder(nil)
+        }
+        return super.resignFirstResponder()
+    }
+
+    // MARK: - Keyboard Events (AppKit)
+
+    override open func keyDown(with event: NSEvent) {
+        if let keyEvent = KeyEvent(phase: .down, event: event) {
+            Task { _ = await inputObservers.didReceive(keyEvent) }
+        } else {
+            super.keyDown(with: event)
+        }
+    }
+
+    override open func keyUp(with event: NSEvent) {
+        if let keyEvent = KeyEvent(phase: .up, event: event) {
+            Task { _ = await inputObservers.didReceive(keyEvent) }
+        } else {
+            super.keyUp(with: event)
+        }
+    }
+
+    // MARK: - Mouse Events (AppKit)
+
+    override open func mouseDown(with event: NSEvent) {
+        super.mouseDown(with: event)
+        on(.down, event: event)
+    }
+
+    override open func mouseDragged(with event: NSEvent) {
+        super.mouseDragged(with: event)
+        on(.move, event: event)
+    }
+
+    override open func mouseUp(with event: NSEvent) {
+        super.mouseUp(with: event)
+        on(.up, event: event)
+    }
+
+    private func on(_ phase: PointerEvent.Phase, event: NSEvent) {
+        Task {
+            // Convert window coordinates to view coordinates
+            let locationInWindow = event.locationInWindow
+            let location = view.convert(locationInWindow, from: nil)
+            
+            // AppKit events have an eventNumber we can use as an ID
+            let id = AnyHashable(event.eventNumber)
+
+            _ = await inputObservers.didReceive(PointerEvent(
+                pointer: .mouse(MousePointer(id: id, buttons: MouseButtons(event: event))),
+                phase: phase,
+                location: location,
+                modifiers: KeyModifiers(flags: event.modifierFlags)!
+            ))
+        }
+    }
+}
+
+// MARK: - AppKit Extensions for Readium Types
+
+extension KeyEvent {
+    init?(phase: KeyEvent.Phase, event: NSEvent) {
+        guard
+            let key = Key(event: event),
+            var modifiers = KeyModifiers(flags: event.modifierFlags)
+        else {
+            return nil
+        }
+
+        if let modKey = KeyModifiers(key: key) {
+            modifiers.remove(modKey)
+        }
+
+        self.init(phase: phase, key: key, modifiers: modifiers)
+    }
+}
+
+extension Key {
+    init?(event: NSEvent) {
+        // AppKit uses raw keyCodes for standard navigation keys
+        switch event.keyCode {
+        case 36, 76: self = .enter // Return and Enter
+        case 48: self = .tab
+        case 49: self = .space
+        case 125: self = .arrowDown
+        case 126: self = .arrowUp
+        case 123: self = .arrowLeft
+        case 124: self = .arrowRight
+        case 119: self = .end
+        case 115: self = .home
+        case 121: self = .pageDown
+        case 116: self = .pageUp
+        case 55, 54: self = .command
+        case 59, 62: self = .control
+        case 58, 61: self = .option
+        case 56, 60: self = .shift
+        case 53: self = .escape
+        default:
+            guard let character = event.charactersIgnoringModifiers, !character.isEmpty else {
+                return nil
+            }
+            self = .character(character)
+        }
+    }
+}
+
+extension MouseButtons {
+    init(event: NSEvent) {
+        self.init()
+        // 0 is left click, 1 is right click
+        if event.buttonNumber == 0 {
+            insert(.main)
+        } else if event.buttonNumber == 1 {
+            insert(.secondary)
+        }
+    }
+}
+
+extension KeyModifiers {
+    init?(flags: NSEvent.ModifierFlags) {
+        self.init()
+
+        if flags.contains(.shift) {
+            insert(.shift)
+        }
+        if flags.contains(.control) {
+            insert(.control)
+        }
+        if flags.contains(.option) {
+            insert(.option)
+        }
+        if flags.contains(.command) {
+            insert(.command)
+        }
+    }
+}
+
+#else
+
 import UIKit
 
 /// Base implementation of `UIViewController` which implements
@@ -273,3 +448,5 @@ extension KeyModifiers {
         }
     }
 }
+
+#endif

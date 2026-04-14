@@ -6,7 +6,12 @@
 
 import Foundation
 import ReadiumShared
+
+#if os(macOS)
+import AppKit
+#else
 import UIKit
+#endif
 
 /// Service used to acquire and open publications protected with LCP.
 ///
@@ -56,6 +61,12 @@ public final class LCPService: Loggable {
             let passphrase = "7B7602FEF5DEDA10F768818FFACBC60B173DB223B7E66D8B2221EBE2C635EFAD" // "One passphrase"
             return client.findOneValidPassphrase(jsonLicense: prodLicense, hashedPassphrases: [passphrase]) == passphrase
         }()
+        
+#if os(macOS)
+        let defaultDeviceName = Host.current().localizedName ?? "Mac"
+#else
+        let defaultDeviceName = UIDevice.current.name
+#endif
 
         licenses = LicensesService(
             isProduction: isProduction,
@@ -63,7 +74,7 @@ public final class LCPService: Loggable {
             licenses: licenseRepository,
             crl: CRLService(httpClient: httpClient),
             device: DeviceService(
-                deviceName: deviceName ?? UIDevice.current.name,
+                deviceName: deviceName ?? defaultDeviceName,
                 deviceId: deviceId,
                 repository: licenseRepository,
                 httpClient: httpClient

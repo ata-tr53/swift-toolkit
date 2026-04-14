@@ -8,7 +8,11 @@ import Foundation
 import PDFKit
 
 protocol PDFDocumentViewDelegate: AnyObject {
+#if os(macOS)
+    func pdfDocumentViewContentInset(_ pdfDocumentView: PDFDocumentView) -> NSEdgeInsets?
+#else
     func pdfDocumentViewContentInset(_ pdfDocumentView: PDFDocumentView) -> UIEdgeInsets?
+#endif
 }
 
 public final class PDFDocumentView: PDFView {
@@ -31,7 +35,9 @@ public final class PDFDocumentView: PDFView {
         // the screen notches.
         // Thefore, we will handle the adjustement manually by only taking the notch area into
         // account.
+#if !os(macOS)
         firstScrollView?.contentInsetAdjustmentBehavior = .never
+#endif
     }
 
     @available(*, unavailable)
@@ -39,22 +45,44 @@ public final class PDFDocumentView: PDFView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override public func safeAreaInsetsDidChange() {
-        super.safeAreaInsetsDidChange()
-        updateContentInset()
-    }
-
-    override public func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
-        super.traitCollectionDidChange(previousTraitCollection)
-        updateContentInset()
-    }
-
     private func updateContentInset() {
         let insets = contentInset
+#if os(macOS)
+        firstScrollView?.contentInsets.top = insets.top
+        firstScrollView?.contentInsets.bottom = insets.bottom
+#else
         firstScrollView?.contentInset.top = insets.top
         firstScrollView?.contentInset.bottom = insets.bottom
+#endif
+    }
+    
+#if os(macOS)
+    private var contentInset: NSEdgeInsets {
+        if let contentInset = documentViewDelegate?.pdfDocumentViewContentInset(self) {
+            return contentInset
+        }
+
+        // Edge-to-edge on macOS. No physical iPhone notches to worry about!
+        return NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+    }
+    
+    public override func viewDidChangeEffectiveAppearance() {
+        super.viewDidChangeEffectiveAppearance()
+        updateContentInset()
     }
 
+    @objc public func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        guard let action = item.action else {
+            return false
+        }
+        
+        if action == #selector(copy(_:)) {
+            return responds(to: action) && editingActions.canPerformAction(action)
+        }
+        
+        return responds(to: action)
+    }
+#else
     private var contentInset: UIEdgeInsets {
         if let contentInset = documentViewDelegate?.pdfDocumentViewContentInset(self) {
             return contentInset
@@ -74,10 +102,21 @@ public final class PDFDocumentView: PDFView {
             return .zero
         }
     }
+    
+    override public func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        updateContentInset()
+    }
 
+    override public func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
+        super.traitCollectionDidChange(previousTraitCollection)
+        updateContentInset()
+    }
+    
     override public func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
         super.canPerformAction(action, withSender: sender) && editingActions.canPerformAction(action)
     }
+#endif
 
     override public func copy(_ sender: Any?) {
         Task {
@@ -85,15 +124,21 @@ public final class PDFDocumentView: PDFView {
         }
     }
 
+#if os(macOS)
+    var isPaginated: Bool {
+        displayMode == .twoUp || displayMode == .singlePage
+    }
+#else
     @available(iOS 13.0, *)
     override public func buildMenu(with builder: UIMenuBuilder) {
         editingActions.buildMenu(with: builder)
         super.buildMenu(with: builder)
     }
-
+    
     var isPaginated: Bool {
         isUsingPageViewController || displayMode == .twoUp || displayMode == .singlePage
     }
+#endif
 
     var isSpreadEnabled: Bool {
         displayMode == .twoUp || displayMode == .twoUpContinuous
@@ -164,6 +209,17 @@ public final class PDFDocumentView: PDFView {
         // Check cache before expensive calculation
         let viewSize = bounds.size
         let insets = contentInset
+#if os(macOS)
+        if
+            let cached = cachedScaleFactorForLargestPage,
+            cached.document == ObjectIdentifier(document),
+            cached.viewSize == viewSize,
+            cached.spread == isSpreadEnabled,
+            cached.displaysAsBook == displaysAsBook
+        {
+            return cached.scaleFactor
+        }
+#else
         if
             let cached = cachedScaleFactorForLargestPage,
             cached.document == ObjectIdentifier(document),
@@ -174,6 +230,7 @@ public final class PDFDocumentView: PDFView {
         {
             return cached.scaleFactor
         }
+#endif
 
         var maxSize: CGSize = .zero
         var maxArea: CGFloat = 0
@@ -253,6 +310,16 @@ public final class PDFDocumentView: PDFView {
     }
 
     /// Cache for expensive largest page scale calculation.
+#if os(macOS)
+    private var cachedScaleFactorForLargestPage: (
+        document: ObjectIdentifier,
+        scaleFactor: CGFloat,
+        viewSize: CGSize,
+        contentInset: NSEdgeInsets,
+        spread: Bool,
+        displaysAsBook: Bool
+    )?
+#else
     private var cachedScaleFactorForLargestPage: (
         document: ObjectIdentifier,
         scaleFactor: CGFloat,
@@ -261,6 +328,7 @@ public final class PDFDocumentView: PDFView {
         spread: Bool,
         displaysAsBook: Bool
     )?
+#endif
 
     /// Calculates the combined size of pages laid out side-by-side horizontally.
     private func spreadSize(for pages: [PDFPage]) -> CGSize {
@@ -275,6 +343,28 @@ public final class PDFDocumentView: PDFView {
 
     /// Calculates the scale factor needed to fit the given content size within
     /// the available viewport, accounting for content insets.
+#if os(macOS)
+    private func calculateScale(
+        for contentSize: CGSize,
+        viewSize: CGSize,
+        insets: NSEdgeInsets
+    ) -> CGFloat {
+        guard contentSize.width > 0, contentSize.height > 0 else {
+            return 1.0
+        }
+
+        let availableSize = CGSize(
+            width: viewSize.width - insets.left - insets.right,
+            height: viewSize.height - insets.top - insets.bottom
+        )
+
+        let widthScale = availableSize.width / contentSize.width
+        let heightScale = availableSize.height / contentSize.height
+
+        // Use the smaller scale to ensure both dimensions fit
+        return min(widthScale, heightScale)
+    }
+#else
     private func calculateScale(
         for contentSize: CGSize,
         viewSize: CGSize,
@@ -295,4 +385,5 @@ public final class PDFDocumentView: PDFView {
         // Use the smaller scale to ensure both dimensions fit
         return min(widthScale, heightScale)
     }
+#endif
 }

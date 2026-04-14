@@ -5,6 +5,9 @@
 //
 
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 
 /// A SwiftUI dialog used to prompt the user for its LCP passphrase.
 ///
@@ -83,7 +86,22 @@ public struct LCPDialog: View {
         self.onForgotPassphrase = onForgotPassphrase
         self.onCancel = onCancel
     }
-
+#if os(macOS)
+    public init(
+        request: LCPObservableAuthentication.Request
+    ) {
+        self.init(
+            hint: request.license.hint.orNilIfBlank(),
+            errorMessage: request.reason == .invalidPassphrase ? .incorrectPassphrase : nil,
+            onSubmit: { passphrase in
+                request.submit(passphrase)
+            },
+            onForgotPassphrase: request.license.hintLink?.url().map { url in
+                { NSWorkspace.shared.open(url.url) }
+            }
+        )
+    }
+#else
     public init(
         request: LCPObservableAuthentication.Request
     ) {
@@ -98,6 +116,7 @@ public struct LCPDialog: View {
             }
         )
     }
+#endif
 
     @Environment(\.dismiss) private var dismiss
     @FocusState private var isFieldFocused
@@ -114,6 +133,7 @@ public struct LCPDialog: View {
                 .onAppear {
                     isFieldFocused = true
                 }
+#if !os(macOS)
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
                     // Wait for the @StateFocus animation to settle before
                     // scrolling, otherwise it won't work.
@@ -123,10 +143,14 @@ public struct LCPDialog: View {
                         }
                     }
                 }
+#endif
             }
             .scrollDismissesKeyboardIfAvailable()
             .navigationTitle(ReadiumLCPLocalizedStringKey("dialog.title"))
+#if !os(macOS)
             .navigationBarTitleDisplayMode(.inline)
+            .navigationViewStyle(.stack)
+#endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button(ReadiumLCPLocalizedStringKey("dialog.actions.cancel"), role: .cancel) {
@@ -136,7 +160,6 @@ public struct LCPDialog: View {
                 }
             }
         }
-        .navigationViewStyle(.stack)
     }
 
     private var header: some View {
@@ -176,9 +199,11 @@ public struct LCPDialog: View {
                 TextField(text: $passphrase) {
                     Text(ReadiumLCPLocalizedStringKey("dialog.passphrase.placeholder"))
                 }
-                .textInputAutocapitalization(.never)
                 .focused($isFieldFocused)
+#if !os(macOS)
+                .textInputAutocapitalization(.never)
                 .submitLabel(.continue)
+#endif
                 .onSubmit {
                     submit()
                 }

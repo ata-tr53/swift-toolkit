@@ -15,6 +15,11 @@ extension WKWebView {
     ///
     /// Inspired by https://stackoverflow.com/a/42939172/1474476
     func removeDoubleTapGestureRecognizer() {
+        #if os(macOS)
+        // macOS does not use UITapGestureRecognizer for double-tap-to-zoom,
+        // nor does it suffer from the 300ms single-click delay.
+        // We safely leave this as a no-op for the Mac build.
+        #else
         for subview in scrollView.subviews {
             for recognizer in subview.gestureRecognizers ?? [] {
                 if
@@ -26,5 +31,6 @@ extension WKWebView {
                 }
             }
         }
+        #endif
     }
 }

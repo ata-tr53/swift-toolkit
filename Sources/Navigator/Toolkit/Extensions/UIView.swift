@@ -5,6 +5,19 @@
 //
 
 import Foundation
+
+#if os(macOS)
+import AppKit
+
+extension NSView {
+    /// Finds the first `NSScrollView` in the view hierarchy.
+    var firstScrollView: NSScrollView? {
+        sequence(first: self) { $0.subviews.first }
+            .first { $0 is NSScrollView }
+            as? NSScrollView
+    }
+}
+#else
 import UIKit
 
 extension UIView {
@@ -17,3 +30,4 @@ extension UIView {
             as? UIScrollView
     }
 }
+#endif

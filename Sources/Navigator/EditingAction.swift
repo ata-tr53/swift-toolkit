@@ -6,7 +6,12 @@
 
 import Foundation
 import ReadiumShared
+
+#if os(macOS)
+import AppKit
+#else
 import UIKit
+#endif
 
 /// An `EditingAction` is an item in the text selection menu.
 ///
@@ -42,13 +47,23 @@ public struct EditingAction: Hashable {
     /// You need to implement the selector in one of your classes in the
     /// responder chain. Typically, in the `UIViewController` wrapping the
     /// navigator view controller.
+#if os(macOS)
+    public init(title: String, action: Selector) {
+        self.init(kind: .custom(NSMenuItem(title: title, action: action, keyEquivalent: "")))
+    }
+#else
     public init(title: String, action: Selector) {
         self.init(kind: .custom(UIMenuItem(title: title, action: action)))
     }
+#endif
 
     enum Kind: Hashable {
         case native([String])
+#if os(macOS)
+        case custom(NSMenuItem)
+#else
         case custom(UIMenuItem)
+#endif
     }
 
     let kind: Kind
@@ -56,7 +71,26 @@ public struct EditingAction: Hashable {
     init(kind: Kind) {
         self.kind = kind
     }
-
+    
+#if os(macOS)
+    var actions: [Selector] {
+        switch kind {
+        case let .native(actions):
+            return actions.map { Selector($0) }
+        case let .custom(item):
+            return [item.action!]
+        }
+    }
+    
+    var menuItem: NSMenuItem? {
+        switch kind {
+        case .native:
+            return nil
+        case let .custom(item):
+            return item
+        }
+    }
+#else
     var actions: [Selector] {
         switch kind {
         case let .native(actions):
@@ -65,7 +99,7 @@ public struct EditingAction: Hashable {
             return [item.action]
         }
     }
-
+    
     var menuItem: UIMenuItem? {
         switch kind {
         case .native:
@@ -74,6 +108,7 @@ public struct EditingAction: Hashable {
             return item
         }
     }
+#endif
 }
 
 protocol EditingActionsControllerDelegate: AnyObject {
@@ -144,7 +179,8 @@ final class EditingActionsController {
             return true
         }
     }
-
+    
+#if !os(macOS)
     @available(iOS 13.0, *)
     func buildMenu(with builder: UIMenuBuilder) {
         if !canPerformAction(.lookup) {
@@ -159,8 +195,10 @@ final class EditingActionsController {
         // To reproduce, comment out and select Japanese text on a PDF.
         builder.remove(menu: .learn)
     }
+#endif
 
     func updateSharedMenuController() {
+#if !os(macOS)
         var items: [UIMenuItem] = []
         if isEnabled, let selection = selection {
             items = actions
@@ -169,6 +207,7 @@ final class EditingActionsController {
         }
         UIMenuController.shared.menuItems = items
         UIMenuController.shared.update()
+#endif
     }
 
     // MARK: - Copy
@@ -191,6 +230,11 @@ final class EditingActionsController {
             return
         }
 
+#if os(macOS)
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+#else
         UIPasteboard.general.string = text
+#endif
     }
 }

@@ -6,6 +6,9 @@
 
 import CoreGraphics
 import Foundation
+#if canImport(AppKit)
+import AppKit
+#endif
 
 /// Helper handling directional UI events (e.g. edge taps or arrow keys) to turn
 /// the pages of a `VisualNavigator`.
@@ -198,8 +201,11 @@ import Foundation
         guard !pointerPolicy.ignoreWhileScrolling || !navigator.presentation.scroll else {
             return false
         }
-
+#if os(macOS)
+        guard let bounds = (navigator as? NSViewController)?.view.bounds else { return false }
+#else
         let bounds = navigator.view.bounds
+#endif
 
         if pointerPolicy.edges.contains(.horizontal) {
             let horizontalEdgeSize = pointerPolicy.horizontalEdgeThresholdPercent

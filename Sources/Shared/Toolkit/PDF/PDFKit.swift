@@ -22,7 +22,7 @@ extension PDFKit.PDFDocument: PDFDocument {
         try await documentRef?.identifier()
     }
 
-    public func cover() async throws -> UIImage? {
+    public func cover() async throws -> PlatformImage? {
         try await documentRef?.cover()
     }
 

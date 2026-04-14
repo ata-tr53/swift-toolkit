@@ -6,7 +6,12 @@
 
 import Foundation
 import ReadiumShared
+
+#if os(macOS)
+import AppKit
+#else
 import UIKit
+#endif
 
 protocol EPUBNavigatorViewModelDelegate: AnyObject {
     func epubNavigatorViewModel(_ viewModel: EPUBNavigatorViewModel, runScript script: String, in scope: EPUBScriptScope)
@@ -138,12 +143,14 @@ enum EPUBScriptScope {
 
         css.update(with: settings)
 
+#if !os(macOS)
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(voiceOverStatusDidChange),
             name: UIAccessibility.voiceOverStatusDidChangeNotification,
             object: nil
         )
+#endif
     }
 
     deinit {
@@ -387,6 +394,9 @@ enum EPUBScriptScope {
 
     // MARK: - Accessibility
 
+#if os(macOS)
+    private var isVoiceOverRunning = NSWorkspace.shared.isVoiceOverEnabled
+#else
     private var isVoiceOverRunning = UIAccessibility.isVoiceOverRunning
 
     @objc private func voiceOverStatusDidChange() {
@@ -399,6 +409,7 @@ enum EPUBScriptScope {
         // Re-apply preferences to force the scroll mode if needed.
         applyPreferences()
     }
+#endif
 }
 
 private extension EPUBSettings {
@@ -415,8 +426,14 @@ private extension EPUBSettings {
 
         // Force-enables scroll when VoiceOver is running, because pagination
         // breaks the screen reader.
+#if os(macOS)
+        if NSWorkspace.shared.isVoiceOverEnabled {
+            scroll = true
+        }
+        #else
         if UIAccessibility.isVoiceOverRunning {
             scroll = true
         }
+        #endif
     }
 }

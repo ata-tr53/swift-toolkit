@@ -6,13 +6,51 @@
 
 import Foundation
 import ReadiumShared
+
+#if os(macOS)
+import AppKit
+#else
 import UIKit
+#endif
 
 /// An `LCPAuthenticating` implementation presenting a dialog to the user.
 ///
 /// For this authentication to trigger, you must provide a `sender` parameter of type
 /// `UIViewController` to `Streamer.open()` or `LCPService.retrieveLicense()`. It will be used
 /// as the presenting view controller for the dialog.
+
+#if os(macOS)
+public class LCPDialogAuthentication: LCPAuthenticating, Loggable {
+    private let animated: Bool
+
+    public init(animated: Bool = true) {
+        self.animated = animated
+    }
+
+    public func retrievePassphrase(
+        for license: LCPAuthenticatedLicense,
+        reason: LCPAuthenticationReason,
+        allowUserInteraction: Bool,
+        sender: Any?
+    ) async -> String? {
+        
+        guard allowUserInteraction, let viewController = sender as? NSViewController else {
+            if !(sender is NSViewController) {
+                log(.error, "Tried to present the LCP dialog without providing an `NSViewController` as `sender`")
+            }
+            return nil
+        }
+
+        return await withCheckedContinuation { continuation in
+            let dialogViewController = LCPDialogViewController(license: license, reason: reason) { passphrase in
+                continuation.resume(returning: passphrase)
+            }
+
+            viewController.presentAsSheet(dialogViewController)
+        }
+    }
+}
+#else
 public class LCPDialogAuthentication: LCPAuthenticating, Loggable {
     private let animated: Bool
     private let modalPresentationStyle: UIModalPresentationStyle
@@ -49,3 +87,4 @@ public class LCPDialogAuthentication: LCPAuthenticating, Loggable {
         }
     }
 }
+#endif

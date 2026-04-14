@@ -4,7 +4,11 @@
 //  available in the top-level LICENSE file of the project.
 //
 
+#if os(macOS)
+import AppKit
+#else
 import UIKit
+#endif
 
 /// Represents a set of modifier keys held together.
 public struct KeyModifiers: OptionSet, Equatable, CustomStringConvertible {

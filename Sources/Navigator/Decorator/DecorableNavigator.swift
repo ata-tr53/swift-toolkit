@@ -6,7 +6,12 @@
 
 import Foundation
 import ReadiumShared
+
+#if os(macOS)
+import AppKit
+#else
 import UIKit
+#endif
 
 /// A navigator able to render arbitrary decorations over a publication.
 public protocol DecorableNavigator {
@@ -108,7 +113,25 @@ public struct Decoration: Hashable, JSONObjectEncodable {
             public static let highlight: Id = "highlight"
             public static let underline: Id = "underline"
         }
+        
+#if os(macOS)
+        public static func highlight(tint: NSColor? = nil, isActive: Bool = false) -> Style {
+            .init(id: .highlight, config: HighlightConfig(tint: tint, isActive: isActive))
+        }
 
+        public static func underline(tint: NSColor? = nil, isActive: Bool = false) -> Style {
+            .init(id: .underline, config: HighlightConfig(tint: tint, isActive: isActive))
+        }
+
+        public struct HighlightConfig: Hashable {
+            public var tint: NSColor?
+            public var isActive: Bool
+            public init(tint: NSColor? = nil, isActive: Bool = false) {
+                self.tint = tint
+                self.isActive = isActive
+            }
+        }
+#else
         public static func highlight(tint: UIColor? = nil, isActive: Bool = false) -> Style {
             .init(id: .highlight, config: HighlightConfig(tint: tint, isActive: isActive))
         }
@@ -125,6 +148,7 @@ public struct Decoration: Hashable, JSONObjectEncodable {
                 self.isActive = isActive
             }
         }
+#endif
 
         public let id: Id
         public let config: AnyHashable?

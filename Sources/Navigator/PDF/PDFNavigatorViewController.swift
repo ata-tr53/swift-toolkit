@@ -7,7 +7,12 @@
 import Foundation
 import PDFKit
 import ReadiumShared
+
+#if os(macOS)
+import AppKit
+#else
 import UIKit
+#endif
 
 public protocol PDFNavigatorDelegate: VisualNavigatorDelegate, SelectableNavigatorDelegate {
     /// Called after the `PDFDocumentView` is created.
@@ -58,7 +63,11 @@ open class PDFNavigatorViewController:
 
     public weak var delegate: PDFNavigatorDelegate?
     public private(set) var pdfView: PDFDocumentView?
+#if os(macOS)
+    private var pdfViewDefaultBackgroundColor: NSColor!
+#else
     private var pdfViewDefaultBackgroundColor: UIColor!
+#endif
 
     public let publication: Publication
     private let initialLocation: Locator?
@@ -71,10 +80,14 @@ open class PDFNavigatorViewController:
     private let documentHolder = PDFDocumentHolder()
 
     // Holds a reference to make sure they are not garbage-collected.
-    private var tapGestureController: PDFTapGestureController?
-    private var clickGestureController: PDFTapGestureController?
-    private var swipeLeftGestureRecognizer: UISwipeGestureRecognizer?
-    private var swipeRightGestureRecognizer: UISwipeGestureRecognizer?
+    #if os(macOS)
+        private var clickGestureRecognizer: NSClickGestureRecognizer?
+    #else
+        private var tapGestureController: PDFTapGestureController?
+        private var clickGestureController: PDFTapGestureController?
+        private var swipeLeftGestureRecognizer: UISwipeGestureRecognizer?
+        private var swipeRightGestureRecognizer: UISwipeGestureRecognizer?
+    #endif
 
     private let server: HTTPServer?
     private let publicationEndpoint: HTTPServerEndpoint?
@@ -178,7 +191,30 @@ open class PDFNavigatorViewController:
     private func didLoadPositions(_ positions: [[Locator]]?) {
         positionsByReadingOrder = positions ?? []
     }
+    
+#if os(macOS)
+    override open func viewWillAppear() {
+        super.viewWillAppear()
 
+        if let pdfView = pdfView {
+            pdfView.scaleFactor = pdfView.minScaleFactor
+            if let page = pdfView.currentPage {
+                pdfView.go(to: page.bounds(for: pdfView.displayBox), on: page)
+            }
+        }
+    }
+    
+    override open func viewDidLayout() {
+        super.viewDidLayout()
+        if let pdfView = pdfView {
+            let isAtScaleFactor = pdfView.isAtScaleFactor(for: settings.fit)
+            self.updateScaleFactors(zoomToFit: isAtScaleFactor)
+            if self.settings.spread == .auto {
+                self.resetPDFView(at: self.currentLocation)
+            }
+        }
+    }
+#else
     override open func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
 
@@ -215,6 +251,7 @@ open class PDFNavigatorViewController:
         editingActions.buildMenu(with: builder)
         super.buildMenu(with: builder)
     }
+#endif
 
     private var resetTask: Task<Void, Never>? {
         willSet {
@@ -246,9 +283,18 @@ open class PDFNavigatorViewController:
         )
         self.pdfView = pdfView
         pdfView.delegate = self
+#if os(macOS)
+        pdfView.autoresizingMask = [.width, .height]
+#else
         pdfView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
+#endif
         view.addSubview(pdfView)
 
+#if os(macOS)
+        let click = NSClickGestureRecognizer(target: self, action: #selector(didClick))
+        pdfView.addGestureRecognizer(click)
+        self.clickGestureRecognizer = click
+#else
         tapGestureController = PDFTapGestureController(
             pdfView: pdfView,
             touchTypes: [.direct, .indirect],
@@ -263,6 +309,7 @@ open class PDFNavigatorViewController:
         )
         swipeLeftGestureRecognizer = recognizeSwipe(in: pdfView, direction: .left)
         swipeRightGestureRecognizer = recognizeSwipe(in: pdfView, direction: .right)
+#endif
 
         apply(settings: settings, to: pdfView)
         delegate?.navigator(self, setupPDFView: pdfView)
@@ -308,12 +355,41 @@ open class PDFNavigatorViewController:
             if spread {
                 pdfView.displayMode = .twoUp
             } else {
+#if !os(macOS)
                 pdfView.usePageViewController(true)
+#endif
             }
 
             pdfView.displayDirection = .horizontal
         }
+        
+#if os(macOS)
+        var margins = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+        let pageSpacing = settings.pageSpacing
+        if pdfView.displayDirection == .horizontal {
+            if isRTL { margins.left = pageSpacing } else { margins.right = pageSpacing }
+        } else {
+            margins.bottom = pageSpacing
+        }
+        // AppKit PDFView pageBreakMargins doesn't exist natively in the same way
+        // pdfView.pageBreakMargins = margins
 
+        pdfView.displaysRTL = isRTL
+        pdfView.displaysPageBreaks = true
+        pdfView.autoScales = false
+
+        if let scrollView = pdfView.enclosingScrollView {
+            let showScrollbar = settings.visibleScrollbar
+            scrollView.hasVerticalScroller = showScrollbar
+            scrollView.hasHorizontalScroller = showScrollbar
+        }
+
+        if pdfViewDefaultBackgroundColor == nil {
+            pdfViewDefaultBackgroundColor = pdfView.backgroundColor
+        }
+        // Use .nsColor if Readium's Color wrapper supports it, otherwise fallback
+        pdfView.backgroundColor = settings.backgroundColor?.nsColor ?? pdfViewDefaultBackgroundColor
+#else
         var margins: UIEdgeInsets = .zero
         let pageSpacing = settings.pageSpacing
         if pdfView.displayDirection == .horizontal {
@@ -346,8 +422,21 @@ open class PDFNavigatorViewController:
         let enableSwipes = !settings.scroll && spread
         swipeLeftGestureRecognizer?.isEnabled = enableSwipes
         swipeRightGestureRecognizer?.isEnabled = enableSwipes
+#endif
     }
-
+    
+#if os(macOS)
+    @objc private func didClick(_ gesture: NSClickGestureRecognizer) {
+        let location = gesture.location(in: view)
+        let pointer = Pointer.mouse(MousePointer(id: ObjectIdentifier(gesture), buttons: .main))
+        
+        Task {
+            _ = await inputObservers.didReceive(PointerEvent(pointer: pointer, phase: .down, location: location, modifiers: KeyModifiers()))
+            _ = await inputObservers.didReceive(PointerEvent(pointer: pointer, phase: .up, location: location, modifiers: KeyModifiers()))
+        }
+        delegate?.navigator(self, didTapAt: location)
+    }
+#else
     @objc private func didTap(_ gesture: UITapGestureRecognizer) {
         let location = gesture.location(in: view)
         let pointer = Pointer.touch(TouchPointer(id: ObjectIdentifier(gesture)))
@@ -390,6 +479,7 @@ open class PDFNavigatorViewController:
             break
         }
     }
+#endif
 
     @objc private func pageDidChange() {
         guard let locator = currentPosition else {
@@ -717,15 +807,23 @@ extension PDFNavigatorViewController: PDFViewDelegate {
         delegate?.navigator(self, presentExternalURL: url)
     }
 
+#if !os(macOS)
     public func pdfViewParentViewController() -> UIViewController {
         self
     }
+#endif
 }
 
 extension PDFNavigatorViewController: PDFDocumentViewDelegate {
+#if os(macOS)
+    func pdfDocumentViewContentInset(_ pdfDocumentView: PDFDocumentView) -> NSEdgeInsets? {
+        delegate?.navigatorContentInset(self)
+    }
+#else
     func pdfDocumentViewContentInset(_ pdfDocumentView: PDFDocumentView) -> UIEdgeInsets? {
         delegate?.navigatorContentInset(self)
     }
+#endif
 }
 
 extension PDFNavigatorViewController: EditingActionsControllerDelegate {
@@ -742,11 +840,19 @@ extension PDFNavigatorViewController: EditingActionsControllerDelegate {
     }
 }
 
+#if os(macOS)
+extension PDFNavigatorViewController: NSGestureRecognizerDelegate {
+    public func gestureRecognizer(_ gestureRecognizer: NSGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: NSGestureRecognizer) -> Bool {
+        true
+    }
+}
+#else
 extension PDFNavigatorViewController: UIGestureRecognizerDelegate {
     public func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
         true
     }
 }
+#endif
 
 private extension Axis {
     var displayDirection: PDFDisplayDirection {

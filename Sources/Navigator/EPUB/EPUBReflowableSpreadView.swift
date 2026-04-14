@@ -7,8 +7,13 @@
 import Foundation
 import ReadiumInternal
 import ReadiumShared
-import UIKit
 import WebKit
+
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 /// A view rendering a spread of resources with a reflowable layout.
 final class EPUBReflowableSpreadView: EPUBSpreadView {
@@ -48,6 +53,12 @@ final class EPUBReflowableSpreadView: EPUBSpreadView {
     override func setupWebView() {
         super.setupWebView()
 
+#if os(macOS)
+        // macOS uses "elasticity" to govern bouncing behavior.
+        // Setting both to .none completely disables the over-scroll bounce.
+        scrollView.horizontalScrollElasticity = .none
+        scrollView.verticalScrollElasticity = .none
+#else
         scrollView.bounces = false
         // Since iOS 16, the default value of alwaysBounceX seems to be true
         // for web views.
@@ -55,6 +66,7 @@ final class EPUBReflowableSpreadView: EPUBSpreadView {
         scrollView.alwaysBounceHorizontal = false
 
         scrollView.isPagingEnabled = !viewModel.scroll
+#endif
 
         webView.translatesAutoresizingMaskIntoConstraints = false
         topConstraint = webView.topAnchor.constraint(equalTo: topAnchor)
@@ -68,15 +80,22 @@ final class EPUBReflowableSpreadView: EPUBSpreadView {
         ])
     }
 
+#if os(macOS)
+    override func layout() {
+        super.layout()
+        updateContentInset()
+    }
+#else
     override func safeAreaInsetsDidChange() {
         super.safeAreaInsetsDidChange()
         updateContentInset()
     }
-
+    
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
         super.traitCollectionDidChange(previousTraitCollection)
         updateContentInset()
     }
+#endif
 
     override func loadSpread() {
         guard spread.readingOrderIndices.count == 1 else {
@@ -87,6 +106,32 @@ final class EPUBReflowableSpreadView: EPUBSpreadView {
         webView.load(URLRequest(url: url.url))
     }
 
+#if os(macOS)
+    override func applySettings() {
+        super.applySettings()
+
+        // macOS doesn't use isPagingEnabled on scroll views.
+        updateContentInset()
+    }
+
+    private func updateContentInset() {
+        // AppKit's NSEdgeInsets doesn't always have a reliable .zero property
+        let emptyInsets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+        let contentInset = delegate?.spreadViewContentInset(self) ?? emptyInsets
+
+        if viewModel.scroll {
+            topConstraint.constant = 0
+            bottomConstraint.constant = 0
+            // Remember the 's' in contentInsets!
+            scrollView.contentInsets = contentInset
+
+        } else {
+            topConstraint.constant = contentInset.top
+            bottomConstraint.constant = -contentInset.bottom
+            scrollView.contentInsets = emptyInsets
+        }
+    }
+#else
     override func applySettings() {
         super.applySettings()
 
@@ -110,16 +155,27 @@ final class EPUBReflowableSpreadView: EPUBSpreadView {
             scrollView.contentInset = .zero
         }
     }
+#endif
 
     override func convertPointToNavigatorSpace(_ point: CGPoint) -> CGPoint {
         var point = point
         if viewModel.scroll {
+#if os(macOS)
+            let origin = scrollView.contentView.bounds.origin
+            if origin.x < 0 {
+                point.x += abs(origin.x)
+            }
+            if origin.y < 0 {
+                point.y += abs(origin.y)
+            }
+#else
             if scrollView.contentOffset.x < 0 {
                 point.x += abs(scrollView.contentOffset.x)
             }
             if scrollView.contentOffset.y < 0 {
                 point.y += abs(scrollView.contentOffset.y)
             }
+#endif
         }
         point.x += webView.frame.minX
         point.y += webView.frame.minY
@@ -181,7 +237,12 @@ final class EPUBReflowableSpreadView: EPUBSpreadView {
 
         guard scrollView.bounds.width > 0 else { return false }
         let offsetX = scrollView.bounds.width * factor
+#if os(macOS)
+        let currentX = scrollView.contentView.bounds.origin.x
+        let targetX = round((currentX + offsetX) / offsetX) * offsetX
+#else
         let targetX = round((scrollView.contentOffset.x + offsetX) / offsetX) * offsetX
+#endif
         guard 0 ..< scrollView.contentSize.width ~= targetX else {
             return false
         }
@@ -320,7 +381,33 @@ final class EPUBReflowableSpreadView: EPUBSpreadView {
             return false
         }
 
-        // Note: The JS layer does not take into account the scroll view's content inset. So it can't be used to reliably scroll to the top or the bottom of the page in scroll mode.
+#if os(macOS)
+        // Note: The JS layer does not take into account the scroll view's content inset.
+        // So it can't be used to reliably scroll to the top or the bottom of the page in scroll mode.
+        if viewModel.scroll, !viewModel.verticalText, [0, 1].contains(progression) {
+            // macOS uses the documentView's frame for contentSize
+            let documentHeight = scrollView.documentView?.frame.height ?? 0
+            let clipViewHeight = scrollView.contentView.bounds.height
+            var origin = scrollView.contentView.bounds.origin
+
+            // In AppKit, contentInset is applied to the documentView or handled via
+            // the contentInsets property on NSScrollView.
+            origin.y = (progression == 0)
+                ? -scrollView.contentInsets.top
+                : (documentHeight - clipViewHeight + scrollView.contentInsets.bottom)
+            
+            // We use the animator() to respect the 'animated' flag if needed,
+            // though here we are setting it directly.
+            scrollView.contentView.scroll(to: origin)
+            return true
+        } else {
+            let dir = viewModel.readingProgression.rawValue
+            await evaluateScript("readium.scrollToPosition(\'\(progression)\', \'\(dir)\', \(animated))")
+            return true
+        }
+#else
+        // Note: The JS layer does not take into account the scroll view's content inset.
+        // So it can't be used to reliably scroll to the top or the bottom of the page in scroll mode.
         if viewModel.scroll, !viewModel.verticalText, [0, 1].contains(progression) {
             var contentOffset = scrollView.contentOffset
             contentOffset.y = (progression == 0)
@@ -333,6 +420,7 @@ final class EPUBReflowableSpreadView: EPUBSpreadView {
             await evaluateScript("readium.scrollToPosition(\'\(progression)\', \'\(dir)\', \(animated))")
             return true
         }
+#endif
     }
 
     /// Scrolls at the tag with ID `tagID`.
@@ -432,8 +520,16 @@ final class EPUBReflowableSpreadView: EPUBSpreadView {
 
     // MARK: - UIScrollViewDelegate
 
+#if os(macOS)
+    @objc private func boundsDidChange(_ notification: Notification) {
+        // AppKit has no super.scrollViewDidScroll to call, so we just fire the update
+        setNeedsNotifyPagesDidChange()
+    }
+
+#else
     override func scrollViewDidScroll(_ scrollView: UIScrollView) {
         super.scrollViewDidScroll(scrollView)
         setNeedsNotifyPagesDidChange()
     }
+#endif
 }

@@ -36,7 +36,35 @@ final class WebView: WKWebView {
     func clearSelection() {
         evaluateJavaScript("window.getSelection().removeAllRanges()")
     }
-
+#if os(macOS)
+    override func validateUserInterfaceItem(_ item: NSValidatedUserInterfaceItem) -> Bool {
+        if item.action == #selector(copy(_:)) {
+            return editingActions.canCopy
+        }
+        return super.validateUserInterfaceItem(item)
+    }
+    
+    @IBAction func copy(_ sender: Any?) {
+        Task {
+            await editingActions.copy()
+        }
+    }
+    
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        setupDragAndDrop()
+    }
+    
+    private func setupDragAndDrop() {
+        // macOS handles drag interactions natively.
+        // If copying is forbidden, we unregister drag types to prevent
+        // the user from dragging highlighted DRM text onto their desktop.
+        if !editingActions.canCopy {
+            unregisterDraggedTypes()
+        }
+    }
+    
+#else
     override func buildMenu(with builder: any UIMenuBuilder) {
         editingActions.buildMenu(with: builder)
 
@@ -74,4 +102,5 @@ final class WebView: WKWebView {
             contentView.removeInteraction(dragInteraction)
         }
     }
+#endif
 }

@@ -5,7 +5,12 @@
 //
 
 import Foundation
+
+#if os(macOS)
+import AppKit
+#else
 import UIKit
+#endif
 
 /// A `CoverService` which holds a lazily generated cover bitmap in memory.
 public final class GeneratedCoverService: CoverService {
@@ -13,14 +18,14 @@ public final class GeneratedCoverService: CoverService {
         case generationFailed
     }
 
-    private var _cover: ReadResult<UIImage>?
-    private let makeCover: () async -> ReadResult<UIImage>
+    private var _cover: ReadResult<PlatformImage>?
+    private let makeCover: () async -> ReadResult<PlatformImage>
 
-    public init(makeCover: @escaping () async -> ReadResult<UIImage>) {
+    public init(makeCover: @escaping () async -> ReadResult<PlatformImage>) {
         self.makeCover = makeCover
     }
 
-    public convenience init(cover: UIImage) {
+    public convenience init(cover: PlatformImage) {
         self.init(makeCover: { .success(cover) })
     }
 
@@ -30,15 +35,15 @@ public final class GeneratedCoverService: CoverService {
         rel: .cover
     )
 
-    private func cachedCover() async -> ReadResult<UIImage> {
+    private func cachedCover() async -> ReadResult<PlatformImage> {
         if _cover == nil {
             _cover = await makeCover()
         }
         return _cover!
     }
 
-    public func cover() async -> ReadResult<UIImage?> {
-        await cachedCover().map { $0 as UIImage? }
+    public func cover() async -> ReadResult<PlatformImage?> {
+        await cachedCover().map { $0 as PlatformImage? }
     }
 
     public var links: [Link] {
@@ -53,18 +58,18 @@ public final class GeneratedCoverService: CoverService {
         return CoverResource(cover: cachedCover)
     }
 
-    public static func makeFactory(makeCover: @escaping () async -> ReadResult<UIImage>) -> (PublicationServiceContext) -> GeneratedCoverService? {
+    public static func makeFactory(makeCover: @escaping () async -> ReadResult<PlatformImage>) -> (PublicationServiceContext) -> GeneratedCoverService? {
         { _ in GeneratedCoverService(makeCover: makeCover) }
     }
 
-    public static func makeFactory(cover: UIImage) -> (PublicationServiceContext) -> GeneratedCoverService? {
+    public static func makeFactory(cover: PlatformImage) -> (PublicationServiceContext) -> GeneratedCoverService? {
         { _ in GeneratedCoverService(cover: cover) }
     }
 
     private class CoverResource: Resource {
-        private let cover: () async -> ReadResult<UIImage>
+        private let cover: () async -> ReadResult<PlatformImage>
 
-        init(cover: @escaping () async -> ReadResult<UIImage>) {
+        init(cover: @escaping () async -> ReadResult<PlatformImage>) {
             self.cover = cover
         }
 

@@ -6,8 +6,13 @@
 
 import Foundation
 import ReadiumShared
-import SafariServices
+
+#if os(macOS)
+import AppKit
+#else
 import UIKit
+import SafariServices
+#endif
 
 /// UX delegate for the loan renew LSD interaction.
 public protocol LCPRenewDelegate {
@@ -28,6 +33,32 @@ public protocol LCPRenewDelegate {
 ///
 /// No date picker is presented for selecting a preferred end date. If you want to support one, you can subclass or
 /// decorate `LCPRenewDelegate`.
+#if os(macOS)
+
+/// Default `LCPRenewDelegate` implementation for macOS using the default system browser.
+public class LCPDefaultRenewDelegate: NSObject, LCPRenewDelegate {
+    private let presentingViewController: NSViewController
+
+    public init(presentingViewController: NSViewController) {
+        self.presentingViewController = presentingViewController
+    }
+
+    public func preferredEndDate(maximum: Date?) async throws -> Date? {
+        nil
+    }
+
+    @MainActor
+    public func presentWebPage(url: HTTPURL) async throws {
+        // On macOS, we hand the URL off to the user's default web browser.
+        NSWorkspace.shared.open(url.url)
+        
+        // Since it opens externally, we cannot wait for a "Done" button like on iOS.
+        // We simply resume immediately. The user will complete the flow in their browser.
+    }
+}
+
+#else
+
 public class LCPDefaultRenewDelegate: NSObject, LCPRenewDelegate {
     private let presentingViewController: UIViewController
     private let modalPresentationStyle: UIModalPresentationStyle
@@ -70,3 +101,5 @@ extension LCPDefaultRenewDelegate: SFSafariViewControllerDelegate {
         webPageContinuation = nil
     }
 }
+
+#endif

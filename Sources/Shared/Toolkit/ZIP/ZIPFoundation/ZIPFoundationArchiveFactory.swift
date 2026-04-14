@@ -89,7 +89,13 @@ final class ZIPFoundationArchiveFactory {
 /// Indicates whether there is enough available free memory to allocate `length`
 /// bytes.
 private func canAllocate(_ length: Int) -> Bool {
-    os_proc_available_memory() > length
+#if os(macOS)
+    // macOS uses virtual memory and swap, so it doesn't have strict Jetsam limits.
+    // We use the total physical RAM as a sensible absolute upper bound for a single allocation.
+    return UInt64(length) < ProcessInfo.processInfo.physicalMemory
+#else
+    return os_proc_available_memory() > length
+#endif
 }
 
 enum ResourceDataSourceError: Error {

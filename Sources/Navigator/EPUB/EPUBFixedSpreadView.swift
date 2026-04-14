@@ -6,8 +6,13 @@
 
 import Foundation
 import ReadiumShared
-import UIKit
 import WebKit
+
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
 
 /// A view rendering a spread of resources with a fixed layout.
 final class EPUBFixedSpreadView: EPUBSpreadView {
@@ -38,13 +43,20 @@ final class EPUBFixedSpreadView: EPUBSpreadView {
         scrollView.clipsToBounds = false
         clipsToBounds = true
 
-        // Required to have the page centered when zooming out. It also feels more natural.
-        scrollView.bounces = true
 
+#if os(macOS)
+        webView.underPageBackgroundColor = NSColor.clear
+        scrollView.backgroundColor = NSColor.clear
+#else
         // Makes sure that we can see the superview's background color behind the iframe.
         webView.isOpaque = false
+        
+        // Required to have the page centered when zooming out. It also feels more natural.
+        scrollView.bounces = true
+        
         webView.backgroundColor = UIColor.clear
         scrollView.backgroundColor = UIColor.clear
+#endif
 
         // Loads the wrapper page into the web view.
         let spreadFile = "fxl-spread-\(viewModel.spreadEnabled ? "two" : "one")"
@@ -61,7 +73,13 @@ final class EPUBFixedSpreadView: EPUBSpreadView {
             webView.loadHTMLString(wrapperPage, baseURL: viewModel.publicationBaseURL.url)
         }
     }
-
+    
+#if os(macOS)
+    override func layout() {
+        super.layout()
+        layoutSpread()
+    }
+#else
     override func layoutSubviews() {
         super.layoutSubviews()
         layoutSpread()
@@ -71,6 +89,7 @@ final class EPUBFixedSpreadView: EPUBSpreadView {
         super.safeAreaInsetsDidChange()
         layoutSpread()
     }
+#endif
 
     /// Layouts the resource to fit its content in the bounds.
     private func layoutSpread() {
@@ -78,7 +97,11 @@ final class EPUBFixedSpreadView: EPUBSpreadView {
             return
         }
 
+#if os(macOS)
+        var insets = delegate?.spreadViewContentInset(self) ?? NSEdgeInsets.init(top: 0, left: 0, bottom: 0, right: 0)
+#else
         var insets = delegate?.spreadViewContentInset(self) ?? .zero
+#endif
 
         // Use the same insets on the left and right side (the largest one) to
         // keep the pages centered on the screen even if the notches are not
@@ -87,7 +110,11 @@ final class EPUBFixedSpreadView: EPUBSpreadView {
         insets.left = horizontalInsets
         insets.right = horizontalInsets
 
+#if os(macOS)
+        let viewportSize = bounds.insetBy(dx: insets.left, dy: insets.top).size
+#else
         let viewportSize = bounds.inset(by: insets).size
+#endif
         let fitString = viewModel.settings.fit.rawValue
 
         webView.evaluateJavaScript("""
@@ -126,20 +153,41 @@ final class EPUBFixedSpreadView: EPUBSpreadView {
     }
 
     override func convertPointToNavigatorSpace(_ point: CGPoint) -> CGPoint {
-        CGPoint(
+#if os(macOS)
+        let scale = scrollView.magnification
+
+        let offset = scrollView.contentView.bounds.origin
+
+        return CGPoint(
+            x: point.x * scale - offset.x + webView.frame.minX,
+            y: point.y * scale - offset.y + webView.frame.minY
+        )
+#else
+        return CGPoint(
             x: point.x * scrollView.zoomScale - scrollView.contentOffset.x + webView.frame.minX,
             y: point.y * scrollView.zoomScale - scrollView.contentOffset.y + webView.frame.minY
         )
+#endif
     }
 
     override func convertRectToNavigatorSpace(_ rect: CGRect) -> CGRect {
-        var rect = rect
-        rect.origin = convertPointToNavigatorSpace(rect.origin)
-        rect.size = CGSize(
-            width: rect.width * scrollView.zoomScale,
-            height: rect.height * scrollView.zoomScale
+#if os(macOS)
+        CGRect(
+            origin: convertPointToNavigatorSpace(rect.origin),
+            size: CGSize(
+                width: rect.width * ( scrollView.magnification ),
+                height: rect.height * ( scrollView.magnification )
+            )
         )
-        return rect
+#else
+        CGRect(
+            origin: convertPointToNavigatorSpace(rect.origin),
+            size: CGSize(
+                width: rect.width * ( scrollView.zoomScale ),
+                height: rect.height * ( scrollView.zoomScale )
+            )
+        )
+#endif
     }
 
     override func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {

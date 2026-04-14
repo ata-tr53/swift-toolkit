@@ -6,12 +6,19 @@
 
 import Foundation
 import ReadiumShared
+
+#if os(macOS)
+import AppKit
+#else
 import UIKit
+#endif
 
 /// A navigator rendering the publication visually on-screen.
 public protocol VisualNavigator: Navigator, InputObservable {
     /// Viewport view.
+#if !os(macOS)
     var view: UIView! { get }
+#endif
 
     /// Current presentation rendered by the navigator.
     var presentation: VisualNavigatorPresentation { get }
@@ -94,7 +101,11 @@ public struct VisualNavigatorPresentation {
     /// or other overlays from obscuring the content.
     ///
     /// - Returns: The insets to apply, or `nil` to use the navigator’s default behavior.
+#if os(macOS)
+    func navigatorContentInset(_ navigator: VisualNavigator) -> NSEdgeInsets?
+#else
     func navigatorContentInset(_ navigator: VisualNavigator) -> UIEdgeInsets?
+#endif
 
     /// Called when the navigator presentation changed, for example after
     /// applying a new set of preferences.
@@ -120,9 +131,15 @@ public struct VisualNavigatorPresentation {
 }
 
 public extension VisualNavigatorDelegate {
+#if os(macOS)
+    func navigatorContentInset(_ navigator: VisualNavigator) -> NSEdgeInsets? {
+        nil
+    }
+#else
     func navigatorContentInset(_ navigator: VisualNavigator) -> UIEdgeInsets? {
         nil
     }
+#endif
 
     func navigator(_ navigator: VisualNavigator, presentationDidChange presentation: VisualNavigatorPresentation) {
         // Optional

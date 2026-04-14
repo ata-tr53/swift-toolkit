@@ -4,7 +4,11 @@
 //  available in the top-level LICENSE file of the project.
 //
 
+#if os(macOS)
+import AppKit
+#else
 import UIKit
+#endif
 
 extension CGRect {
     /// Parses a `CGRect` from its JSON representation.

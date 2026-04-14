@@ -5,7 +5,12 @@
 //
 
 import Foundation
+
+#if os(macOS)
+import AppKit
+#else
 import UIKit
+#endif
 
 /// Represents a couple (`target`, `action`) which can be invoked from a `sender`.
 final class TargetAction {
@@ -17,9 +22,17 @@ final class TargetAction {
         self.action = action
     }
 
+#if os(macOS)
+    func invoke(from sender: Any?) {
+        if let target = target {
+            NSApplication.shared.sendAction(action, to: target, from: sender)
+        }
+    }
+#else
     func invoke(from sender: Any?) {
         if let target = target {
             UIApplication.shared.sendAction(action, to: target, from: sender, for: nil)
         }
     }
+#endif
 }

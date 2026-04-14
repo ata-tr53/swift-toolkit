@@ -5,8 +5,78 @@
 //
 
 import SwiftUI
-import UIKit
 
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
+
+#if os(macOS)
+final class LCPDialogViewController: NSViewController {
+    private let license: LCPAuthenticatedLicense
+    private let reason: LCPAuthenticationReason
+    private let completion: (String?) -> Void
+
+    init(license: LCPAuthenticatedLicense, reason: LCPAuthenticationReason, completion: @escaping (String?) -> Void) {
+        self.license = license
+        self.reason = reason
+        self.completion = completion
+        super.init(nibName: nil, bundle: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func loadView() {
+        self.view = NSView()
+    }
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+
+        let dialog = LCPDialog(
+            hint: license.hint.orNilIfBlank(),
+            errorMessage: reason == .invalidPassphrase ? .incorrectPassphrase : nil,
+            onSubmit: { [weak self] passphrase in
+                self?.complete(with: passphrase)
+            },
+            onForgotPassphrase: license.hintLink?.url().map { url in
+                { NSWorkspace.shared.open(url.url) }
+            },
+            onCancel: { [weak self] in
+                self?.complete(with: nil)
+            }
+        )
+
+        let hostingController = NSHostingController(rootView: dialog)
+        addChild(hostingController)
+        hostingController.view.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(hostingController.view)
+        
+        NSLayoutConstraint.activate([
+            hostingController.view.topAnchor.constraint(equalTo: view.topAnchor),
+            hostingController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            hostingController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            hostingController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+    }
+
+    private var isCompleted = false
+
+    private func complete(with passphrase: String?) {
+        guard !isCompleted else {
+            return
+        }
+        isCompleted = true
+        completion(passphrase)
+        
+        dismiss(self)
+    }
+}
+#else
 final class LCPDialogViewController: UIViewController {
     private let license: LCPAuthenticatedLicense
     private let reason: LCPAuthenticationReason
@@ -67,3 +137,4 @@ final class LCPDialogViewController: UIViewController {
         dismiss(animated: true)
     }
 }
+#endif

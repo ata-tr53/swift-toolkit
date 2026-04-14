@@ -8,7 +8,12 @@ import Foundation
 import ReadiumGCDWebServer
 import ReadiumInternal
 import ReadiumShared
+
+#if os(macOS)
+import AppKit
+#else
 import UIKit
+#endif
 
 public enum GCDHTTPServerError: Error {
     case failedToStartServer(cause: Error)
@@ -57,7 +62,21 @@ public class GCDHTTPServer: HTTPServer, Loggable {
 
         ReadiumGCDWebServer.setLogLevel(Int32(logLevel))
 
-        NotificationCenter.default.addObserver(self, selector: #selector(willEnterForeground), name: UIApplication.willEnterForegroundNotification, object: nil)
+#if os(macOS)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(willEnterForeground),
+            name: NSApplication.willBecomeActiveNotification,
+            object: nil
+        )
+#else
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(willEnterForeground),
+            name: UIApplication.willEnterForegroundNotification,
+            object: nil
+        )
+#endif
 
         server.addDefaultHandler(
             forMethod: "GET",
@@ -277,7 +296,7 @@ public class GCDHTTPServer: HTTPServer, Loggable {
                 // We disable automatically suspending the server in the
                 // background, to be able to play audiobooks even with the
                 // screen locked.
-                ReadiumGCDWebServerOption_AutomaticallySuspendInBackground: false,
+//                ReadiumGCDWebServerOption_AutomaticallySuspendInBackground: false,
             ])
         } catch {
             throw GCDHTTPServerError.failedToStartServer(cause: error)

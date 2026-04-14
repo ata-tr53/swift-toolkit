@@ -4,6 +4,112 @@
 //  available in the top-level LICENSE file of the project.
 //
 
+#if os(macOS)
+import AppKit
+
+/// An `NSGestureRecognizer` that will forward the mouse events to an
+/// `InputObserving`. It will never recognize any gesture, only forward the
+/// events.
+final class InputObservingGestureRecognizerAdapter: NSGestureRecognizer {
+    let observer: InputObserving
+
+    init(observer: CompositeInputObserver) {
+        self.observer = observer
+        super.init(target: nil, action: nil)
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    /// Stores the `PointerEvent` that were notified to the `observer`, to
+    /// cancel them if the gesture recognizer is reset before the clicks
+    /// are cancelled or ended.
+    private var pendingPointers: [AnyHashable: PointerEvent] = [:]
+
+    // MARK: - Left Mouse Events
+
+    override func mouseDown(with event: NSEvent) {
+        super.mouseDown(with: event)
+        on(.down, event: event)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        super.mouseDragged(with: event)
+        on(.move, event: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        super.mouseUp(with: event)
+        on(.up, event: event)
+    }
+
+    // MARK: - Right Mouse Events
+
+    override func rightMouseDown(with event: NSEvent) {
+        super.rightMouseDown(with: event)
+        on(.down, event: event)
+    }
+
+    override func rightMouseDragged(with event: NSEvent) {
+        super.rightMouseDragged(with: event)
+        on(.move, event: event)
+    }
+
+    override func rightMouseUp(with event: NSEvent) {
+        super.rightMouseUp(with: event)
+        on(.up, event: event)
+    }
+
+    override func reset() {
+        // The gesture recognizer can be reset without receiving the ended
+        // or cancelled callbacks for events already sent. We will cancel
+        // them manually for the observer.
+        let pointersToReset = pendingPointers
+        pendingPointers = [:]
+        Task {
+            for (_, event) in pointersToReset {
+                var event = event
+                event.phase = .cancel
+                _ = await observer.didReceive(event)
+            }
+        }
+    }
+
+    private func on(_ phase: PointerEvent.Phase, event: NSEvent) {
+        Task {
+            guard let view = view else {
+                return
+            }
+
+            // Convert the window coordinate to the local view's coordinate space
+            let locationInWindow = event.locationInWindow
+            let location = view.convert(locationInWindow, from: nil)
+            
+            // NSEvent has a unique eventNumber we can use to track drags/clicks
+            let id = AnyHashable(event.eventNumber)
+
+            let pointerEvent = PointerEvent(
+                pointer: .mouse(MousePointer(id: id, buttons: MouseButtons(event: event))),
+                phase: phase,
+                location: location,
+                modifiers: KeyModifiers(flags: event.modifierFlags)!
+            )
+
+            switch phase {
+            case .down, .move:
+                pendingPointers[id] = pointerEvent
+            case .up, .cancel:
+                pendingPointers.removeValue(forKey: id)
+            }
+
+            _ = await observer.didReceive(pointerEvent)
+        }
+    }
+}
+
+#else
 import UIKit
 import UIKit.UIGestureRecognizerSubclass
 
@@ -85,3 +191,4 @@ final class InputObservingGestureRecognizerAdapter: UIGestureRecognizer {
         }
     }
 }
+#endif

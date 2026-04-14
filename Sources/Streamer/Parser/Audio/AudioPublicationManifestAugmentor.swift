@@ -7,7 +7,12 @@
 import AVFoundation
 import Foundation
 import ReadiumShared
+
+#if os(macOS)
+import AppKit
+#else
 import UIKit
+#endif
 
 /// Implements a strategy to augment a `Manifest` of an audio publication with additional metadata and
 /// cover, for example by looking into the audio files metadata.
@@ -17,9 +22,9 @@ public protocol AudioPublicationManifestAugmentor {
 
 public struct AudioPublicationAugmentedManifest {
     public var manifest: Manifest
-    public var cover: UIImage?
+    public var cover: PlatformImage?
 
-    public init(manifest: Manifest, cover: UIImage? = nil) {
+    public init(manifest: Manifest, cover: PlatformImage? = nil) {
         self.manifest = manifest
         self.cover = cover
     }
@@ -30,7 +35,134 @@ public struct AudioPublicationAugmentedManifest {
 /// It will only work for local publications (file://).
 public final class AVAudioPublicationManifestAugmentor: AudioPublicationManifestAugmentor {
     public init() {}
+    
+    #if os(macOS)
+    public func augment(_ manifest: Manifest, using container: Container) async -> AudioPublicationAugmentedManifest {
+        let avAssets = manifest.readingOrder.map { link -> AVURLAsset? in
+            guard let fileURL = container[link.url()]?.sourceURL?.fileURL else { return nil }
+            return AVURLAsset(url: fileURL.url, options: [AVURLAssetPreferPreciseDurationAndTimingKey: true])
+        }
+        
+        var manifest = manifest
+        var newReadingOrder: [Link] = []
+        var allMetadata: [AVMetadataItem] = []
+        var totalDuration: Double? = 0
+        
+        // 1. Process Reading Order and collect total metadata & duration asynchronously
+        for (link, avAsset) in zip(manifest.readingOrder, avAssets) {
+            guard let avAsset = avAsset else {
+                newReadingOrder.append(link)
+                totalDuration = nil // If any asset is missing, total duration becomes nil
+                continue
+            }
+            
+            var updatedLink = link
+            
+            // Await Metadata
+            let metadata = (try? await avAsset.load(.metadata)) ?? []
+            allMetadata.append(contentsOf: metadata)
+            
+            // Update Link Title
+            for item in metadata.filter([.commonIdentifierTitle]) {
+                if let str = try? await item.load(.stringValue), !str.isEmpty {
+                    updatedLink.title = str
+                    break
+                }
+            }
+            
+            // Update Link Duration
+            if let duration = try? await avAsset.load(.duration) {
+                updatedLink.duration = duration.seconds
+                if let currentTotal = totalDuration {
+                    totalDuration = currentTotal + duration.seconds
+                }
+            } else {
+                totalDuration = nil
+            }
+            
+            newReadingOrder.append(updatedLink)
+        }
+        
+        manifest.readingOrder = newReadingOrder
+        var metadata = manifest.metadata
+        
+        // MARK: - Async Helpers
+        
+        func firstString(for identifiers: [AVMetadataIdentifier]) async -> String? {
+            for item in allMetadata.filter(identifiers) {
+                if let str = try? await item.load(.stringValue), !str.isEmpty {
+                    return str
+                }
+            }
+            return nil
+        }
+        
+        func allStrings(for identifiers: [AVMetadataIdentifier]) async -> [String] {
+            var results: [String] = []
+            for item in allMetadata.filter(identifiers) {
+                if let str = try? await item.load(.stringValue), !str.isEmpty {
+                    results.append(str)
+                }
+            }
+            return results.removingDuplicates()
+        }
 
+        // MARK: - Update Global Metadata
+        
+        if let title = await firstString(for: [.commonIdentifierTitle, .id3MetadataAlbumTitle]) {
+            metadata.localizedTitle = title.localizedString
+        }
+        
+        if let subtitle = await firstString(for: [.id3MetadataSubTitle, .iTunesMetadataTrackSubTitle]) {
+            metadata.localizedSubtitle = subtitle.localizedString
+        }
+        
+        for item in allMetadata.filter([.commonIdentifierLastModifiedDate]) {
+            if let date = try? await item.load(.dateValue) {
+                metadata.modified = date
+                break
+            }
+        }
+        
+        for item in allMetadata.filter([.commonIdentifierCreationDate, .id3MetadataDate]) {
+            if let date = try? await item.load(.dateValue) {
+                metadata.published = date
+                break
+            }
+        }
+        
+        metadata.languages = await allStrings(for: [.commonIdentifierLanguage, .id3MetadataLanguage])
+        metadata.subjects = await allStrings(for: [.commonIdentifierSubject]).map { Subject(name: $0) }
+        
+        metadata.authors = await allStrings(for: [
+            .commonIdentifierAuthor, .iTunesMetadataAuthor, .commonIdentifierArtist,
+            .id3MetadataOriginalArtist, .iTunesMetadataArtist, .iTunesMetadataOriginalArtist
+        ]).map { Contributor(name: $0) }
+        
+        metadata.illustrators = await allStrings(for: [.iTunesMetadataAlbumArtist]).map { Contributor(name: $0) }
+        metadata.contributors = await allStrings(for: [.commonIdentifierContributor]).map { Contributor(name: $0) }
+        metadata.publishers = await allStrings(for: [.commonIdentifierPublisher, .id3MetadataPublisher, .iTunesMetadataPublisher]).map { Contributor(name: $0) }
+        metadata.narrators = await allStrings(for: [.id3MetadataComposer, .iTunesMetadataComposer]).map { Contributor(name: $0) }
+        
+        if let description = await firstString(for: [.commonIdentifierDescription, .iTunesMetadataDescription]) {
+            metadata.description = description
+        }
+        
+        metadata.duration = totalDuration
+        manifest.metadata = metadata
+        
+        // 2. Extract Cover Image
+        var cover: PlatformImage? = nil
+        for item in allMetadata.filter([.commonIdentifierArtwork, .id3MetadataAttachedPicture, .iTunesMetadataCoverArt]) {
+            if let data = try? await item.load(.dataValue), let image = PlatformImage(data: data) {
+                cover = image
+                break
+            }
+        }
+        
+        return .init(manifest: manifest, cover: cover)
+    }
+    #else
     public func augment(_ manifest: Manifest, using container: Container) async -> AudioPublicationAugmentedManifest {
         let avAssets = manifest.readingOrder.map { link in
             container[link.url()]?.sourceURL?.fileURL
@@ -79,9 +211,10 @@ public final class AVAudioPublicationManifestAugmentor: AudioPublicationManifest
         }
 
         manifest.metadata = metadata
-        let cover = avMetadata.filter([.commonIdentifierArtwork, .id3MetadataAttachedPicture, .iTunesMetadataCoverArt]).first(where: { $0.dataValue.flatMap(UIImage.init(data:)) })
+        let cover = avMetadata.filter([.commonIdentifierArtwork, .id3MetadataAttachedPicture, .iTunesMetadataCoverArt]).first(where: { $0.dataValue.flatMap(PlatformImage.init(data:)) })
         return .init(manifest: manifest, cover: cover)
     }
+    #endif
 }
 
 private extension [AVMetadataItem] {

@@ -5,7 +5,12 @@
 //
 
 import Foundation
+
+#if os(macOS)
+import AppKit
+#else
 import UIKit
+#endif
 
 /// An HTTP client performs HTTP requests.
 ///
@@ -85,9 +90,9 @@ public extension HTTPClient {
     }
 
     /// Fetches the resource as an `UIImage`.
-    func fetchImage(_ request: HTTPRequestConvertible) async -> HTTPResult<UIImage> {
+    func fetchImage(_ request: HTTPRequestConvertible) async -> HTTPResult<PlatformImage> {
         await fetch(request) {
-            UIImage(data: $1)
+            PlatformImage(data: $1)
         }
     }
 

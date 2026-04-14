@@ -121,6 +121,27 @@ public class PublicationSpeechSynthesizer: Loggable {
     ///   - tokenizerFactory: Factory to create a `ContentTokenizer` which will be used to
     ///     split each `ContentElement` item into smaller chunks. Splits by sentences by default.
     ///   - delegate: Optional delegate.
+#if os(macOS)
+    public init?(
+        publication: Publication,
+        config: Configuration = Configuration(),
+        audioSessionConfig: AudioSession.Configuration = .init(),
+        engineFactory: @escaping EngineFactory = { AVTTSEngine() },
+        tokenizerFactory: @escaping TokenizerFactory = defaultTokenizerFactory,
+        delegate: PublicationSpeechSynthesizerDelegate? = nil
+    ) {
+        guard Self.canSpeak(publication: publication) else {
+            return nil
+        }
+
+        self.publication = publication
+        self.config = config
+        audioSessionUser = AudioSessionUser(config: audioSessionConfig)
+        self.engineFactory = engineFactory
+        self.tokenizerFactory = tokenizerFactory
+        self.delegate = delegate
+    }
+#else
     public init?(
         publication: Publication,
         config: Configuration = Configuration(),
@@ -144,6 +165,7 @@ public class PublicationSpeechSynthesizer: Loggable {
         self.tokenizerFactory = tokenizerFactory
         self.delegate = delegate
     }
+#endif
 
     /// The default content tokenizer will split the `Content.Element` items into individual sentences.
     public static let defaultTokenizerFactory: TokenizerFactory = { defaultLanguage in

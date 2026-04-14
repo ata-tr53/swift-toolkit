@@ -6,7 +6,12 @@
 
 import Foundation
 import ReadiumShared
+
+#if os(macOS)
+import AppKit
+#else
 import UIKit
+#endif
 
 /// An `HTMLDecorationTemplate` renders a `Decoration` into a set of HTML elements and associated stylesheet.
 public struct HTMLDecorationTemplate: JSONObjectEncodable {
@@ -65,6 +70,32 @@ public struct HTMLDecorationTemplate: JSONObjectEncodable {
     ///   - experimentalPositioning: When true, places decorations behind the
     ///     publication text using a negative z-index, preventing the highlight
     ///     from affecting text color. This may not work with all publications.
+#if os(macOS)
+    public static func defaultTemplates(
+        defaultTint: NSColor = .yellow,
+        lineWeight: Int = 2,
+        cornerRadius: Int = 3,
+        alpha: Double = 0.3,
+        experimentalPositioning: Bool = false
+    ) -> [Decoration.Style.Id: HTMLDecorationTemplate] {
+        let padding = NSEdgeInsets(top: 0, left: 1, bottom: 0, right: 1)
+        
+        return [
+            .highlight: .highlight(defaultTint: defaultTint, padding: padding, lineWeight: lineWeight, cornerRadius: cornerRadius, alpha: alpha, experimentalPositioning: experimentalPositioning),
+            .underline: .underline(defaultTint: defaultTint, padding: padding, lineWeight: lineWeight, cornerRadius: cornerRadius, alpha: alpha, experimentalPositioning: experimentalPositioning),
+        ]
+    }
+    
+    /// Creates a new decoration template for the `highlight` style.
+    public static func highlight(defaultTint: NSColor, padding: NSEdgeInsets, lineWeight: Int, cornerRadius: Int, alpha: Double, experimentalPositioning: Bool = false) -> HTMLDecorationTemplate {
+        makeTemplate(asHighlight: true, defaultTint: defaultTint, padding: padding, lineWeight: lineWeight, cornerRadius: cornerRadius, alpha: alpha, experimentalPositioning: experimentalPositioning)
+    }
+
+    /// Creates a new decoration template for the `underline` style.
+    public static func underline(defaultTint: NSColor, padding: NSEdgeInsets, lineWeight: Int, cornerRadius: Int, alpha: Double, experimentalPositioning: Bool = false) -> HTMLDecorationTemplate {
+        makeTemplate(asHighlight: false, defaultTint: defaultTint, padding: padding, lineWeight: lineWeight, cornerRadius: cornerRadius, alpha: alpha, experimentalPositioning: experimentalPositioning)
+    }
+#else
     public static func defaultTemplates(
         defaultTint: UIColor = .yellow,
         lineWeight: Int = 2,
@@ -73,12 +104,13 @@ public struct HTMLDecorationTemplate: JSONObjectEncodable {
         experimentalPositioning: Bool = false
     ) -> [Decoration.Style.Id: HTMLDecorationTemplate] {
         let padding = UIEdgeInsets(top: 0, left: 1, bottom: 0, right: 1)
+        
         return [
             .highlight: .highlight(defaultTint: defaultTint, padding: padding, lineWeight: lineWeight, cornerRadius: cornerRadius, alpha: alpha, experimentalPositioning: experimentalPositioning),
             .underline: .underline(defaultTint: defaultTint, padding: padding, lineWeight: lineWeight, cornerRadius: cornerRadius, alpha: alpha, experimentalPositioning: experimentalPositioning),
         ]
     }
-
+    
     /// Creates a new decoration template for the `highlight` style.
     public static func highlight(defaultTint: UIColor, padding: UIEdgeInsets, lineWeight: Int, cornerRadius: Int, alpha: Double, experimentalPositioning: Bool = false) -> HTMLDecorationTemplate {
         makeTemplate(asHighlight: true, defaultTint: defaultTint, padding: padding, lineWeight: lineWeight, cornerRadius: cornerRadius, alpha: alpha, experimentalPositioning: experimentalPositioning)
@@ -88,8 +120,63 @@ public struct HTMLDecorationTemplate: JSONObjectEncodable {
     public static func underline(defaultTint: UIColor, padding: UIEdgeInsets, lineWeight: Int, cornerRadius: Int, alpha: Double, experimentalPositioning: Bool = false) -> HTMLDecorationTemplate {
         makeTemplate(asHighlight: false, defaultTint: defaultTint, padding: padding, lineWeight: lineWeight, cornerRadius: cornerRadius, alpha: alpha, experimentalPositioning: experimentalPositioning)
     }
+#endif
 
     /// - Parameter asHighlight: When true, the non active style is of an highlight. Otherwise, it is an underline.
+#if os(macOS)
+    private static func makeTemplate(asHighlight: Bool, defaultTint: NSColor, padding: NSEdgeInsets, lineWeight: Int, cornerRadius: Int, alpha: Double, experimentalPositioning: Bool = false) -> HTMLDecorationTemplate {
+        let className = makeUniqueClassName(key: asHighlight ? "highlight" : "underline")
+        return HTMLDecorationTemplate(
+            layout: .boxes,
+            element: { decoration in
+                let config = decoration.style.config as! Decoration.Style.HighlightConfig
+                let tint = config.tint ?? defaultTint
+                let isActive = config.isActive
+                var css = ""
+                if asHighlight || isActive {
+                    css += "background-color: \(tint.cssValue(alpha: alpha)) !important;"
+                }
+                if !asHighlight || isActive {
+                    css += "--underline-color: \(tint.cssValue());"
+                }
+                if experimentalPositioning {
+                    // Experimental positioning:
+                    // Decoration is placed behind the publication's text, to prevent it from affecting text-color.
+                    css += "--decoration-z-index: -1;"
+                }
+                return "<div class=\"\(className)\" style=\"\(css)\"/>"
+            },
+            stylesheet:
+            """
+            .\(className) {
+                margin: \(-padding.top)px \(-padding.left)px 0 0;
+                padding: 0 \(padding.left + padding.right)px \(padding.top + padding.bottom)px 0;
+                border-radius: \(cornerRadius)px;
+                box-sizing: border-box;
+                border: 0 solid var(--underline-color);
+                z-index: var(--decoration-z-index);
+            }
+
+            /* Horizontal (default) */
+            [data-writing-mode="horizontal-tb"].\(className) {
+                border-bottom-width: \(lineWeight)px;
+            }
+
+            /* Vertical right-to-left */
+            [data-writing-mode="vertical-rl"].\(className),
+            [data-writing-mode="sideways-rl"].\(className) {
+                border-left-width: \(lineWeight)px;
+            }
+
+            /* Vertical left-to-right */
+            [data-writing-mode="vertical-lr"].\(className),
+            [data-writing-mode="sideways-lr"].\(className) {
+                border-right-width: \(lineWeight)px;
+            }
+            """
+        )
+    }
+#else
     private static func makeTemplate(asHighlight: Bool, defaultTint: UIColor, padding: UIEdgeInsets, lineWeight: Int, cornerRadius: Int, alpha: Double, experimentalPositioning: Bool = false) -> HTMLDecorationTemplate {
         let className = makeUniqueClassName(key: asHighlight ? "highlight" : "underline")
         return HTMLDecorationTemplate(
@@ -142,6 +229,7 @@ public struct HTMLDecorationTemplate: JSONObjectEncodable {
             """
         )
     }
+#endif
 
     private static var classNamesId = 0
     private static func makeUniqueClassName(key: String) -> String {

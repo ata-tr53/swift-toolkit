@@ -6,10 +6,23 @@
 
 import ReadiumInternal
 import ReadiumShared
-import SafariServices
 import SwiftSoup
-import UIKit
 import WebKit
+
+#if os(macOS)
+import AppKit
+// We create a dummy enum that looks like the iOS one so the code compiles
+public enum UserInterfaceSizeClass {
+    case compact
+    case regular
+    
+    case unspecified
+}
+#else
+import UIKit
+import SafariServices
+public typealias UserInterfaceSizeClass = UIUserInterfaceSizeClass
+#endif
 
 @MainActor public protocol EPUBNavigatorDelegate: VisualNavigatorDelegate, SelectableNavigatorDelegate {
     /// Called when the viewport is updated.
@@ -77,7 +90,7 @@ open class EPUBNavigatorViewController: InputObservableViewController,
         /// For more control, implement the `navigatorContentInset()` delegate
         /// method, which takes precedence over this configuration property
         /// when implemented.
-        public var contentInset: [UIUserInterfaceSizeClass: EPUBContentInsets]
+        public var contentInset: [UserInterfaceSizeClass: EPUBContentInsets]
 
         /// Number of positions (as in `Publication.positionList`) to preload before the current page.
         public var preloadPreviousPositionCount: Int
@@ -104,7 +117,7 @@ open class EPUBNavigatorViewController: InputObservableViewController,
             defaults: EPUBDefaults = EPUBDefaults(),
             editingActions: [EditingAction] = EditingAction.defaultActions,
             disablePageTurnsWhileScrolling: Bool = false,
-            contentInset: [UIUserInterfaceSizeClass: EPUBContentInsets] = [
+            contentInset: [UserInterfaceSizeClass: EPUBContentInsets] = [
                 .compact: (top: 34, bottom: 34),
                 .regular: (top: 62, bottom: 62),
             ],
@@ -128,7 +141,7 @@ open class EPUBNavigatorViewController: InputObservableViewController,
             self.debugState = debugState
         }
 
-        func contentInset(for sizeClass: UIUserInterfaceSizeClass) -> EPUBContentInsets {
+        func contentInset(for sizeClass: UserInterfaceSizeClass) -> EPUBContentInsets {
             contentInset[sizeClass]
                 ?? contentInset[.regular]
                 ?? contentInset[.unspecified]
@@ -256,12 +269,21 @@ open class EPUBNavigatorViewController: InputObservableViewController,
             }
 
             // Disable user interaction while transitioning, to avoid UX issues.
+#if os(macOS)
+            switch state {
+            case .initializing, .loading, .jumping, .moving:
+                paginationView?.isScrollEnabled = false
+            case .idle:
+                paginationView?.isScrollEnabled = true
+            }
+#else
             switch state {
             case .initializing, .loading, .jumping, .moving:
                 paginationView?.isUserInteractionEnabled = false
             case .idle:
                 paginationView?.isUserInteractionEnabled = true
             }
+#endif
         }
     }
 
@@ -368,6 +390,21 @@ open class EPUBNavigatorViewController: InputObservableViewController,
             }
         )
 
+#if os(macOS)
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(didBecomeActive),
+            name: NSApplication.didBecomeActiveNotification,
+            object: nil
+        )
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(willResignActive),
+            name: NSApplication.willResignActiveNotification,
+            object: nil
+        )
+#else
         NotificationCenter.default.addObserver(
             self,
             selector: #selector(didBecomeActive),
@@ -381,6 +418,7 @@ open class EPUBNavigatorViewController: InputObservableViewController,
             name: UIApplication.willResignActiveNotification,
             object: nil
         )
+#endif
     }
 
     @available(*, unavailable)
@@ -397,7 +435,9 @@ open class EPUBNavigatorViewController: InputObservableViewController,
 
         // Will call `accessibilityScroll()` when VoiceOver reaches the end of
         // the current resource. We can use this to go to the next resource.
+#if !os(macOS)
         view.accessibilityTraits.insert(.causesPageTurn)
+#endif
 
         Task {
             await initialize()
@@ -437,7 +477,11 @@ open class EPUBNavigatorViewController: InputObservableViewController,
         )
 
         paginationView!.frame = view.bounds
+#if os(macOS)
+        paginationView!.autoresizingMask = [.height, .width]
+#else
         paginationView!.autoresizingMask = [.flexibleHeight, .flexibleWidth]
+#endif
         view.addSubview(paginationView!)
 
         applySettings()
@@ -464,6 +508,20 @@ open class EPUBNavigatorViewController: InputObservableViewController,
         }
     }
 
+#if os(macOS)
+    override open func viewWillAppear() {
+        super.viewWillAppear()
+        viewModel.viewSizeWillChange(view.bounds.size)
+    }
+
+    override open func viewDidLayout() {
+        super.viewDidLayout()
+        
+        if isActive {
+            viewModel.viewSizeWillChange(view.bounds.size)
+        }
+    }
+#else
     @available(iOS 13.0, *)
     override open func buildMenu(with builder: UIMenuBuilder) {
         viewModel.editingActions.buildMenu(with: builder)
@@ -482,6 +540,7 @@ open class EPUBNavigatorViewController: InputObservableViewController,
             viewModel.viewSizeWillChange(size)
         }
     }
+#endif
 
     @discardableResult
     private func on(_ event: Event) -> Bool {
@@ -568,7 +627,9 @@ open class EPUBNavigatorViewController: InputObservableViewController,
             isScrollEnabled: isPaginationViewScrollingEnabled
         )
         view.delegate = self
+#if !os(macOS)
         view.backgroundColor = .clear
+#endif
         return view
     }
 
@@ -933,7 +994,10 @@ open class EPUBNavigatorViewController: InputObservableViewController,
             return
         }
 
+#if !os(macOS)
         view.backgroundColor = settings.effectiveBackgroundColor.uiColor
+#endif
+        
         paginationView?.isScrollEnabled = isPaginationViewScrollingEnabled
     }
 
@@ -949,7 +1013,7 @@ open class EPUBNavigatorViewController: InputObservableViewController,
     }
 
     // MARK: - UIAccessibilityAction
-
+#if !os(macOS)
     override open func accessibilityScroll(_ direction: UIAccessibilityScrollDirection) -> Bool {
         guard !super.accessibilityScroll(direction) else {
             return true
@@ -973,6 +1037,7 @@ open class EPUBNavigatorViewController: InputObservableViewController,
         }
         return true
     }
+#endif
 }
 
 extension EPUBNavigatorViewController: EPUBNavigatorViewModelDelegate {
@@ -1029,6 +1094,27 @@ extension EPUBNavigatorViewController: EPUBNavigatorViewModelDelegate {
 }
 
 extension EPUBNavigatorViewController: EPUBSpreadViewDelegate {
+#if os(macOS)
+    func spreadViewContentInset(_ spreadView: EPUBSpreadView) -> NSEdgeInsets {
+        if let inset = delegate?.navigatorContentInset(self) {
+            return inset
+        }
+
+        var insets = view.safeAreaInsets
+
+        switch publication.metadata.epubLayout {
+        case .fixed:
+            insets = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
+
+        case .reflowable:
+            let configInset = config.contentInset(for: .regular)
+            insets.top = max(insets.top, configInset.top)
+            insets.bottom = max(insets.bottom, configInset.bottom)
+        }
+
+        return insets
+    }
+#else
     func spreadViewContentInset(_ spreadView: EPUBSpreadView) -> UIEdgeInsets {
         if let inset = delegate?.navigatorContentInset(self) {
             return inset
@@ -1056,6 +1142,7 @@ extension EPUBNavigatorViewController: EPUBSpreadViewDelegate {
 
         return insets
     }
+#endif
 
     func spreadViewDidLoad(_ spreadView: EPUBSpreadView) async {
         let templates = config.decorationTemplates.reduce(into: [String: JSONValue]()) { styles, item in
@@ -1242,9 +1329,15 @@ extension EPUBNavigatorViewController: EPUBSpreadViewDelegate {
         }
     }
 
+#if os(macOS)
+    func spreadView(_ spreadView: EPUBSpreadView, present viewController: NSViewController) {
+        presentAsSheet(viewController)
+    }
+#else
     func spreadView(_ spreadView: EPUBSpreadView, present viewController: UIViewController) {
         present(viewController, animated: true)
     }
+#endif
 
     func spreadViewDidTerminate() {
         reloadSpreads()
@@ -1266,6 +1359,24 @@ extension EPUBNavigatorViewController: EditingActionsControllerDelegate {
 }
 
 extension EPUBNavigatorViewController: PaginationViewDelegate {
+#if os(macOS)
+    func paginationView(_ paginationView: PaginationView, pageViewAtIndex index: Int) -> (NSView & PageView)? {
+        let spread = spreads[index]
+        let spreadViewType = (publication.metadata.layout == .fixed) ? EPUBFixedSpreadView.self : EPUBReflowableSpreadView.self
+        let spreadView = spreadViewType.init(
+            viewModel: viewModel,
+            spread: spread,
+            scripts: [],
+            animatedLoad: false
+        )
+        spreadView.delegate = self
+
+        let userContentController = spreadView.webView.configuration.userContentController
+        delegate?.navigator(self, setupUserScripts: userContentController)
+
+        return spreadView
+    }
+#else
     func paginationView(_ paginationView: PaginationView, pageViewAtIndex index: Int) -> (UIView & PageView)? {
         let spread = spreads[index]
         let spreadViewType = (publication.metadata.layout == .fixed) ? EPUBFixedSpreadView.self : EPUBReflowableSpreadView.self
@@ -1282,6 +1393,7 @@ extension EPUBNavigatorViewController: PaginationViewDelegate {
 
         return spreadView
     }
+#endif
 
     func paginationViewDidUpdateViews(_ paginationView: PaginationView) {
         // Note that you should set the delegate before you load views
@@ -1294,3 +1406,4 @@ extension EPUBNavigatorViewController: PaginationViewDelegate {
         spreads[index].positionCount(in: readingOrder, positionsByReadingOrder: positionsByReadingOrder)
     }
 }
+
