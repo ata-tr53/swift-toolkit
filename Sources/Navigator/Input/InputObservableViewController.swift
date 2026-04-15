@@ -37,10 +37,6 @@ open class InputObservableViewController: NSViewController, InputObservable {
     }
 
     override open func resignFirstResponder() -> Bool {
-        if isViewLoaded {
-            // Equivalent to endEditing on iOS
-            view.window?.makeFirstResponder(nil)
-        }
         return super.resignFirstResponder()
     }
 
